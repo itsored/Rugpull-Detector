@@ -227,14 +227,17 @@ export default function ComprehensiveAnalysis({ result }: ComprehensiveAnalysisP
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-4">
-              <div className="flex items-center justify-between p-3 rounded-lg border">
+
+              {/* uses pro plan */}
+
+              {/* <div className="flex items-center justify-between p-3 rounded-lg border">
                 <span className="font-medium">Contract Verified</span>
                 {securityAnalysis.isVerified ? (
                   <CheckCircle className="h-5 w-5 text-green-500" />
                 ) : (
                   <XCircle className="h-5 w-5 text-red-500" />
                 )}
-              </div>
+              </div> */}
               <div className="flex items-center justify-between p-3 rounded-lg border">
                 <span className="font-medium">Mint Function</span>
                 {securityAnalysis.hasMintFunction ? (
