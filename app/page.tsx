@@ -119,8 +119,17 @@ export default function Home() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 p-4">
-      <div className="max-w-6xl mx-auto">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 p-4 relative">
+      <div className="max-w-6xl mx-auto relative">
+        {/* Loader Overlay */}
+        {isAnalyzing && (
+          <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white/80 backdrop-blur-sm transition-all">
+            <Loader2 className="h-16 w-16 text-indigo-600 animate-spin mb-6" />
+            <div className="text-2xl font-semibold text-gray-800 mb-2">Analyzing Contract...</div>
+            <div className="text-md text-gray-500">This may take a few seconds. Please wait while we analyze the contract's security and market data.</div>
+          </div>
+        )}
+        {/* Main Content */}
         <div className="text-center mb-8">
           <h1 className="text-5xl font-bold text-gray-900 mb-3">
             🔍 Token Risk Analyzer
