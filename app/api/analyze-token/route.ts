@@ -1,22 +1,67 @@
 import { type NextRequest, NextResponse } from "next/server"
 
-// Tatum API configuration
+// API configurations
 const TATUM_API_KEY = process.env.TATUM_API_KEY || "your-tatum-api-key"
 const TATUM_BASE_URL = "https://api.tatum.io/v3"
+const COINGECKO_BASE_URL = "https://api.coingecko.co/api/v3"
+const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY || "YourApiKeyToken"
+const ETHERSCAN_BASE_URL = "https://api.etherscan.io/api"
 
 interface TokenMetadata {
   name: string
   symbol: string
   totalSupply: string
   decimals: number
+  contractAddress: string
 }
 
-interface RedFlags {
-  noNameOrSymbol: boolean
-  hugeSupply: boolean
-  fewTransfers: boolean
-  fewHolders: boolean
-  recentlyCreated: boolean
+interface MarketData {
+  price: number
+  marketCap: number
+  volume24h: number
+  priceChange24h: number
+  circulatingSupply: number
+  totalSupply: number
+  maxSupply: number | null
+  ath: number
+  athChangePercentage: number
+  atl: number
+  atlChangePercentage: number
+}
+
+interface SecurityAnalysis {
+  isVerified: boolean
+  hasProxyContract: boolean
+  hasMintFunction: boolean
+  hasPauseFunction: boolean
+  hasBlacklistFunction: boolean
+  hasOwnershipRenounced: boolean
+  rugPullRisk: number
+}
+
+interface HolderAnalysis {
+  totalHolders: number
+  top10HoldersPercentage: number
+  creatorPercentage: number
+  distributionScore: number
+}
+
+interface ComprehensiveAnalysis {
+  tokenData: TokenMetadata
+  marketData: MarketData | null
+  securityAnalysis: SecurityAnalysis
+  holderAnalysis: HolderAnalysis
+  riskFactors: RiskFactor[]
+  overallRiskScore: number
+  riskLevel: "Very Low" | "Low" | "Medium" | "High" | "Very High"
+  recommendation: string
+}
+
+interface RiskFactor {
+  category: string
+  severity: "low" | "medium" | "high" | "critical"
+  description: string
+  impact: number
 }
 
 export async function POST(request: NextRequest) {
@@ -27,111 +72,369 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Contract address is required" }, { status: 400 })
     }
 
-    // Validate Ethereum address format
     if (!/^0x[a-fA-F0-9]{40}$/.test(contractAddress)) {
       return NextResponse.json({ error: "Invalid Ethereum address format" }, { status: 400 })
     }
 
-    // Get token metadata using Tatum's smart contract invocation
-    const tokenData = await getTokenMetadata(contractAddress)
+    console.log(`Starting analysis for: ${contractAddress}`)
 
-    // Analyze for red flags
-    const redFlags = await analyzeRedFlags(contractAddress, tokenData)
+    // Run all analyses in parallel for efficiency
+    const [tokenData, marketData, securityAnalysis, holderAnalysis] = await Promise.allSettled([
+      getTokenMetadata(contractAddress),
+      getMarketData(contractAddress),
+      performSecurityAnalysis(contractAddress),
+      analyzeHolderDistribution(contractAddress),
+    ])
 
-    // Calculate risk score
-    const riskScore = calculateRiskScore(redFlags)
-    const riskLevel = getRiskLevel(riskScore)
-
-    return NextResponse.json({
-      tokenData,
-      redFlags,
-      riskScore,
-      riskLevel,
-    })
-  } catch (error) {
-    console.error("Analysis error:", error)
-
-    // More specific error messages
-    if (error instanceof Error) {
-      if (error.message.includes("404")) {
-        return NextResponse.json(
-          { error: "Token contract not found or not a valid ERC-20 token. Please verify the contract address." },
-          { status: 404 },
-        )
-      }
-      if (error.message.includes("401") || error.message.includes("403")) {
-        return NextResponse.json(
-          { error: "API authentication failed. Please check your Tatum API key configuration." },
-          { status: 401 },
-        )
-      }
-      if (error.message.includes("429")) {
-        return NextResponse.json({ error: "Rate limit exceeded. Please try again in a moment." }, { status: 429 })
-      }
+    // Extract results, handling failures gracefully
+    const analysis: ComprehensiveAnalysis = {
+      tokenData: tokenData.status === "fulfilled" ? tokenData.value : getDefaultTokenData(contractAddress),
+      marketData: marketData.status === "fulfilled" ? marketData.value : null,
+      securityAnalysis: securityAnalysis.status === "fulfilled" ? securityAnalysis.value : getDefaultSecurityAnalysis(),
+      holderAnalysis: holderAnalysis.status === "fulfilled" ? holderAnalysis.value : getDefaultHolderAnalysis(),
+      riskFactors: [],
+      overallRiskScore: 0,
+      riskLevel: "Medium",
+      recommendation: "",
     }
 
-    return NextResponse.json(
-      {
-        error:
-          "Failed to analyze token. The contract may not be a standard ERC-20 token or there may be a network issue.",
-      },
-      { status: 500 },
-    )
+    // Perform comprehensive risk analysis
+    analysis.riskFactors = identifyRiskFactors(analysis)
+    analysis.overallRiskScore = calculateOverallRiskScore(analysis.riskFactors)
+    analysis.riskLevel = determineRiskLevel(analysis.overallRiskScore)
+    analysis.recommendation = generateRecommendation(analysis)
+
+    console.log(`Analysis completed. Risk score: ${analysis.overallRiskScore}`)
+
+    return NextResponse.json(analysis)
+  } catch (error) {
+    console.error("Analysis error:", error)
+    return NextResponse.json({ error: "Failed to perform token analysis. Please try again." }, { status: 500 })
   }
 }
 
 async function getTokenMetadata(contractAddress: string): Promise<TokenMetadata> {
-  console.log(`Analyzing token: ${contractAddress}`)
-
-  // Use Tatum's smart contract invocation to call ERC-20 methods
-  const tokenData: Partial<TokenMetadata> = {}
-
-  try {
-    // Get token name
-    const nameResult = await callContractMethod(contractAddress, "name", [])
-    tokenData.name = nameResult || "Unknown Token"
-  } catch (error) {
-    console.warn("Failed to get token name:", error)
-    tokenData.name = "Unknown Token"
-  }
-
-  try {
-    // Get token symbol
-    const symbolResult = await callContractMethod(contractAddress, "symbol", [])
-    tokenData.symbol = symbolResult || "UNKNOWN"
-  } catch (error) {
-    console.warn("Failed to get token symbol:", error)
-    tokenData.symbol = "UNKNOWN"
-  }
-
-  try {
-    // Get token decimals
-    const decimalsResult = await callContractMethod(contractAddress, "decimals", [])
-    tokenData.decimals = decimalsResult ? Number.parseInt(decimalsResult) : 18
-  } catch (error) {
-    console.warn("Failed to get token decimals:", error)
-    tokenData.decimals = 18
-  }
-
-  try {
-    // Get total supply
-    const totalSupplyResult = await callContractMethod(contractAddress, "totalSupply", [])
-    tokenData.totalSupply = totalSupplyResult || "0"
-  } catch (error) {
-    console.warn("Failed to get token total supply:", error)
-    tokenData.totalSupply = "0"
-  }
+  const [name, symbol, decimals, totalSupply] = await Promise.allSettled([
+    callContractMethod(contractAddress, "name", []),
+    callContractMethod(contractAddress, "symbol", []),
+    callContractMethod(contractAddress, "decimals", []),
+    callContractMethod(contractAddress, "totalSupply", []),
+  ])
 
   return {
-    name: tokenData.name || "Unknown Token",
-    symbol: tokenData.symbol || "UNKNOWN",
-    totalSupply: tokenData.totalSupply || "0",
-    decimals: tokenData.decimals || 18,
+    name: name.status === "fulfilled" ? name.value || "Unknown" : "Unknown",
+    symbol: symbol.status === "fulfilled" ? symbol.value || "UNKNOWN" : "UNKNOWN",
+    decimals: decimals.status === "fulfilled" ? Number.parseInt(decimals.value || "18") : 18,
+    totalSupply: totalSupply.status === "fulfilled" ? totalSupply.value || "0" : "0",
+    contractAddress,
   }
 }
 
+async function getMarketData(contractAddress: string): Promise<MarketData | null> {
+  try {
+    const searchResponse = await fetch(`${COINGECKO_BASE_URL}/coins/ethereum/contract/${contractAddress.toLowerCase()}`)
+
+    if (!searchResponse.ok) {
+      console.log("Token not found on CoinGecko")
+      return null
+    }
+
+    const coinData = await searchResponse.json()
+
+    return {
+      price: coinData.market_data?.current_price?.usd || 0,
+      marketCap: coinData.market_data?.market_cap?.usd || 0,
+      volume24h: coinData.market_data?.total_volume?.usd || 0,
+      priceChange24h: coinData.market_data?.price_change_percentage_24h || 0,
+      circulatingSupply: coinData.market_data?.circulating_supply || 0,
+      totalSupply: coinData.market_data?.total_supply || 0,
+      maxSupply: coinData.market_data?.max_supply || null,
+      ath: coinData.market_data?.ath?.usd || 0,
+      athChangePercentage: coinData.market_data?.ath_change_percentage?.usd || 0,
+      atl: coinData.market_data?.atl?.usd || 0,
+      atlChangePercentage: coinData.market_data?.atl_change_percentage?.usd || 0,
+    }
+  } catch (error) {
+    console.error("Error fetching market data:", error)
+    return null
+  }
+}
+
+async function performSecurityAnalysis(contractAddress: string): Promise<SecurityAnalysis> {
+  const analysis: SecurityAnalysis = {
+    isVerified: false,
+    hasProxyContract: false,
+    hasMintFunction: false,
+    hasPauseFunction: false,
+    hasBlacklistFunction: false,
+    hasOwnershipRenounced: false,
+    rugPullRisk: 0,
+  }
+
+  try {
+    // Check if contract is verified on Etherscan
+    const verificationResponse = await fetch(
+      `${ETHERSCAN_BASE_URL}?module=contract&action=getsourcecode&address=${contractAddress}&apikey=${ETHERSCAN_API_KEY}`,
+    )
+
+    if (verificationResponse.ok) {
+      const verificationData = await verificationResponse.json()
+      const sourceCode = verificationData.result?.[0]?.SourceCode || ""
+
+      analysis.isVerified = sourceCode !== ""
+
+      // Analyze source code for dangerous functions if available
+      if (sourceCode) {
+        analysis.hasMintFunction = /function\s+mint\s*\(/.test(sourceCode) || /\.mint\s*\(/.test(sourceCode)
+        analysis.hasPauseFunction = /function\s+pause\s*\(/.test(sourceCode) || /Pausable/.test(sourceCode)
+        analysis.hasBlacklistFunction = /blacklist/i.test(sourceCode) || /function\s+blacklist\s*\(/.test(sourceCode)
+        analysis.hasProxyContract = /Proxy/.test(sourceCode) || /upgradeable/i.test(sourceCode)
+        analysis.hasOwnershipRenounced = /renounceOwnership/i.test(sourceCode) && /onlyOwner/.test(sourceCode)
+      }
+    }
+
+    // Calculate rug pull risk based on various factors
+    analysis.rugPullRisk = calculateRugPullRisk(analysis)
+  } catch (error) {
+    console.error("Error in security analysis:", error)
+  }
+
+  return analysis
+}
+
+async function analyzeHolderDistribution(contractAddress: string): Promise<HolderAnalysis> {
+  try {
+    // Get top token holders from Etherscan
+    const holdersResponse = await fetch(
+      `${ETHERSCAN_BASE_URL}?module=token&action=tokenholderlist&contractaddress=${contractAddress}&page=1&offset=100&apikey=${ETHERSCAN_API_KEY}`,
+    )
+
+    if (holdersResponse.ok) {
+      const holdersData = await holdersResponse.json()
+
+      // Check if the response is successful and has results
+      if (holdersData.status === "1" && holdersData.result && Array.isArray(holdersData.result)) {
+        const holders = holdersData.result
+
+        if (holders.length > 0) {
+          // Calculate total supply from holders data
+          const totalSupplyFromHolders = holders.reduce(
+            (sum: number, holder: any) => sum + Number.parseFloat(holder.TokenHolderQuantity || "0"),
+            0,
+          )
+
+          const top10Supply = holders
+            .slice(0, 10)
+            .reduce((sum: number, holder: any) => sum + Number.parseFloat(holder.TokenHolderQuantity || "0"), 0)
+
+          const creatorBalance = Number.parseFloat(holders[0]?.TokenHolderQuantity || "0")
+
+          return {
+            totalHolders: holders.length,
+            top10HoldersPercentage: totalSupplyFromHolders > 0 ? (top10Supply / totalSupplyFromHolders) * 100 : 100,
+            creatorPercentage: totalSupplyFromHolders > 0 ? (creatorBalance / totalSupplyFromHolders) * 100 : 100,
+            distributionScore: calculateDistributionScore(holders, totalSupplyFromHolders),
+          }
+        }
+      } else {
+        console.log("Etherscan API response:", holdersData)
+        console.log("No holder data available or API limit reached")
+      }
+    } else {
+      console.log("Failed to fetch holder data from Etherscan")
+    }
+  } catch (error) {
+    console.error("Error analyzing holder distribution:", error)
+  }
+
+  return getDefaultHolderAnalysis()
+}
+
+function identifyRiskFactors(analysis: ComprehensiveAnalysis): RiskFactor[] {
+  const riskFactors: RiskFactor[] = []
+
+  // Security-related risks
+  if (!analysis.securityAnalysis.isVerified) {
+    riskFactors.push({
+      category: "Security",
+      severity: "high",
+      description: "Contract source code is not verified on Etherscan",
+      impact: 25,
+    })
+  }
+
+  if (analysis.securityAnalysis.hasMintFunction) {
+    riskFactors.push({
+      category: "Security",
+      severity: "medium",
+      description: "Contract has mint function - supply can be increased",
+      impact: 15,
+    })
+  }
+
+  if (analysis.securityAnalysis.hasBlacklistFunction) {
+    riskFactors.push({
+      category: "Security",
+      severity: "high",
+      description: "Contract can blacklist addresses from trading",
+      impact: 25,
+    })
+  }
+
+  if (analysis.securityAnalysis.hasPauseFunction) {
+    riskFactors.push({
+      category: "Security",
+      severity: "medium",
+      description: "Contract can be paused, stopping all transfers",
+      impact: 15,
+    })
+  }
+
+  if (analysis.securityAnalysis.hasProxyContract) {
+    riskFactors.push({
+      category: "Security",
+      severity: "medium",
+      description: "Proxy contract - logic can be upgraded",
+      impact: 20,
+    })
+  }
+
+  // Market-related risks
+  if (analysis.marketData) {
+    if (analysis.marketData.volume24h < 10000) {
+      riskFactors.push({
+        category: "Market",
+        severity: "medium",
+        description: "Very low trading volume (< $10,000 daily)",
+        impact: 15,
+      })
+    }
+
+    if (analysis.marketData.marketCap < 100000) {
+      riskFactors.push({
+        category: "Market",
+        severity: "medium",
+        description: "Very low market cap (< $100,000)",
+        impact: 10,
+      })
+    }
+
+    if (analysis.marketData.priceChange24h < -50) {
+      riskFactors.push({
+        category: "Market",
+        severity: "high",
+        description: "Severe price drop (>50%) in last 24 hours",
+        impact: 20,
+      })
+    }
+  } else {
+    riskFactors.push({
+      category: "Market",
+      severity: "high",
+      description: "No market data available - token may not be actively traded",
+      impact: 20,
+    })
+  }
+
+  // Holder distribution risks
+  if (analysis.holderAnalysis.top10HoldersPercentage > 80) {
+    riskFactors.push({
+      category: "Distribution",
+      severity: "high",
+      description: "Top 10 holders control more than 80% of supply",
+      impact: 25,
+    })
+  }
+
+  if (analysis.holderAnalysis.creatorPercentage > 50) {
+    riskFactors.push({
+      category: "Distribution",
+      severity: "critical",
+      description: "Creator/deployer holds more than 50% of total supply",
+      impact: 30,
+    })
+  }
+
+  if (analysis.holderAnalysis.totalHolders < 100) {
+    riskFactors.push({
+      category: "Distribution",
+      severity: "medium",
+      description: "Very few token holders (< 100)",
+      impact: 10,
+    })
+  }
+
+  // Token metadata risks
+  if (analysis.tokenData.name === "Unknown" || analysis.tokenData.symbol === "UNKNOWN") {
+    riskFactors.push({
+      category: "Metadata",
+      severity: "medium",
+      description: "Missing or invalid token name/symbol",
+      impact: 10,
+    })
+  }
+
+  // Check for excessive supply
+  try {
+    const supply = Number.parseFloat(analysis.tokenData.totalSupply) / Math.pow(10, analysis.tokenData.decimals)
+    if (supply > 1e12) {
+      riskFactors.push({
+        category: "Tokenomics",
+        severity: "medium",
+        description: "Extremely large total supply (>1 trillion tokens)",
+        impact: 15,
+      })
+    }
+  } catch (error) {
+    // Ignore supply calculation errors
+  }
+
+  return riskFactors
+}
+
+function calculateOverallRiskScore(riskFactors: RiskFactor[]): number {
+  const totalImpact = riskFactors.reduce((sum, factor) => sum + factor.impact, 0)
+  return Math.min(totalImpact, 100)
+}
+
+function determineRiskLevel(score: number): "Very Low" | "Low" | "Medium" | "High" | "Very High" {
+  if (score <= 10) return "Very Low"
+  if (score <= 25) return "Low"
+  if (score <= 50) return "Medium"
+  if (score <= 75) return "High"
+  return "Very High"
+}
+
+function generateRecommendation(analysis: ComprehensiveAnalysis): string {
+  const { riskLevel, riskFactors } = analysis
+  const criticalRisks = riskFactors.filter((f) => f.severity === "critical")
+  const highRisks = riskFactors.filter((f) => f.severity === "high")
+
+  if (criticalRisks.length > 0) {
+    return "❌ AVOID: This token has critical security issues. Do not invest."
+  }
+
+  if (riskLevel === "Very High" || highRisks.length >= 3) {
+    return "🚨 HIGH RISK: This token has multiple serious red flags. Extreme caution advised."
+  }
+
+  if (riskLevel === "High") {
+    return "⚠️ CAUTION: This token has significant risks. Only invest what you can afford to lose."
+  }
+
+  if (riskLevel === "Medium") {
+    return "📊 MODERATE: This token has some risks but may be acceptable for experienced investors."
+  }
+
+  if (riskLevel === "Low") {
+    return "✅ LOW RISK: This token appears relatively safe but always DYOR."
+  }
+
+  return "🌟 VERY LOW RISK: This token shows good fundamentals and security practices."
+}
+
+// Helper functions
 async function callContractMethod(contractAddress: string, methodName: string, params: any[]): Promise<string | null> {
-  // Standard ERC-20 ABI for common methods
   const methodABIs: Record<string, any> = {
     name: {
       inputs: [],
@@ -163,11 +466,6 @@ async function callContractMethod(contractAddress: string, methodName: string, p
     },
   }
 
-  const methodABI = methodABIs[methodName]
-  if (!methodABI) {
-    throw new Error(`Unknown method: ${methodName}`)
-  }
-
   try {
     const response = await fetch(`${TATUM_BASE_URL}/ethereum/smartcontract`, {
       method: "POST",
@@ -176,141 +474,95 @@ async function callContractMethod(contractAddress: string, methodName: string, p
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        contractAddress: contractAddress,
-        methodName: methodName,
-        methodABI: methodABI,
-        params: params,
+        contractAddress,
+        methodName,
+        methodABI: methodABIs[methodName],
+        params,
       }),
     })
 
-    if (!response.ok) {
-      const errorText = await response.text()
-      console.error(`Smart contract call failed for ${methodName}:`, response.status, errorText)
-      throw new Error(`HTTP ${response.status}: ${errorText}`)
+    if (response.ok) {
+      const result = await response.json()
+      return result?.data || result?.[0] || result?.value || result?.toString() || null
     }
-
-    const result = await response.json()
-    console.log(`${methodName} result:`, result)
-
-    // Handle different response formats
-    if (result && typeof result === "object") {
-      // If result has a data property
-      if (result.data !== undefined) {
-        return result.data
-      }
-      // If result is an array, take the first element
-      if (Array.isArray(result) && result.length > 0) {
-        return result[0]
-      }
-      // If result has a value property
-      if (result.value !== undefined) {
-        return result.value
-      }
-    }
-
-    // If result is a string or number, return it directly
-    if (typeof result === "string" || typeof result === "number") {
-      return result.toString()
-    }
-
-    return null
   } catch (error) {
     console.error(`Error calling ${methodName}:`, error)
-    throw error
   }
+
+  return null
 }
 
-async function analyzeRedFlags(contractAddress: string, tokenData: TokenMetadata): Promise<RedFlags> {
-  const redFlags: RedFlags = {
-    noNameOrSymbol: false,
-    hugeSupply: false,
-    fewTransfers: false,
-    fewHolders: false,
-    recentlyCreated: false,
-  }
+function calculateRugPullRisk(security: SecurityAnalysis): number {
+  let risk = 0
+  if (!security.isVerified) risk += 25
+  if (security.hasMintFunction) risk += 15
+  if (security.hasBlacklistFunction) risk += 25
+  if (security.hasPauseFunction) risk += 10
+  if (security.hasProxyContract) risk += 15
+  if (!security.hasOwnershipRenounced) risk += 10
+  return Math.min(risk, 100)
+}
 
-  // Check for missing name or symbol
-  redFlags.noNameOrSymbol =
-    !tokenData.name ||
-    !tokenData.symbol ||
-    tokenData.name.trim() === "" ||
-    tokenData.symbol.trim() === "" ||
-    tokenData.name === "Unknown Token" ||
-    tokenData.symbol === "UNKNOWN"
+function calculateDistributionScore(holders: any[], totalSupply: number): number {
+  if (!Array.isArray(holders) || holders.length === 0 || totalSupply === 0) return 0
 
-  // Check for huge supply (>1 trillion tokens)
   try {
-    const supply = Number.parseFloat(tokenData.totalSupply) / Math.pow(10, tokenData.decimals)
-    redFlags.hugeSupply = supply > 1e12
-  } catch (error) {
-    console.warn("Could not parse total supply:", error)
-    redFlags.hugeSupply = false
-  }
+    // Calculate Gini coefficient for distribution
+    const sortedHoldings = holders
+      .map((h) => Number.parseFloat(h.TokenHolderQuantity || "0"))
+      .filter((amount) => !isNaN(amount) && amount > 0)
+      .sort((a, b) => a - b)
 
-  // Check transaction activity using Tatum's transaction history endpoint
-  try {
-    const transactionResponse = await fetch(
-      `${TATUM_BASE_URL}/ethereum/transaction/address/${contractAddress}?pageSize=10`,
-      {
-        headers: {
-          "x-api-key": TATUM_API_KEY,
-        },
-      },
-    )
+    if (sortedHoldings.length === 0) return 0
 
-    if (transactionResponse.ok) {
-      const transactions = await transactionResponse.json()
-      redFlags.fewTransfers = !transactions || !Array.isArray(transactions) || transactions.length < 5
-    } else {
-      console.warn("Could not fetch transaction data, defaulting to few transfers")
-      redFlags.fewTransfers = true
+    let sum = 0
+    let weightedSum = 0
+
+    for (let i = 0; i < sortedHoldings.length; i++) {
+      sum += sortedHoldings[i]
+      weightedSum += (i + 1) * sortedHoldings[i]
     }
+
+    if (sum === 0) return 0
+
+    const gini = (2 * weightedSum) / (sortedHoldings.length * sum) - (sortedHoldings.length + 1) / sortedHoldings.length
+
+    // Convert Gini to distribution score (0 = worst distribution, 100 = perfect distribution)
+    return Math.max(0, Math.min(100, (1 - gini) * 100))
   } catch (error) {
-    console.warn("Could not fetch transaction data:", error)
-    redFlags.fewTransfers = true
+    console.error("Error calculating distribution score:", error)
+    return 0
   }
-
-  // Check for centralized holdings by getting the balance of the contract creator
-  try {
-    const balanceResponse = await fetch(`${TATUM_BASE_URL}/ethereum/account/balance/${contractAddress}`, {
-      headers: {
-        "x-api-key": TATUM_API_KEY,
-      },
-    })
-
-    if (balanceResponse.ok) {
-      const balanceData = await balanceResponse.json()
-      // This is a simplified check - in reality, you'd need to analyze multiple addresses
-      redFlags.fewHolders = false
-    } else {
-      redFlags.fewHolders = true
-    }
-  } catch (error) {
-    console.warn("Could not analyze holder distribution:", error)
-    redFlags.fewHolders = true
-  }
-
-  // Simplified age check - based on transaction history
-  redFlags.recentlyCreated = redFlags.fewTransfers
-
-  return redFlags
 }
 
-function calculateRiskScore(redFlags: RedFlags): number {
-  let score = 0
-
-  // Each red flag contributes to the risk score
-  if (redFlags.noNameOrSymbol) score += 25
-  if (redFlags.hugeSupply) score += 20
-  if (redFlags.fewTransfers) score += 20
-  if (redFlags.fewHolders) score += 20
-  if (redFlags.recentlyCreated) score += 15
-
-  return Math.min(score, 100) // Cap at 100
+// Default data functions
+function getDefaultTokenData(contractAddress: string): TokenMetadata {
+  return {
+    name: "Unknown Token",
+    symbol: "UNKNOWN",
+    totalSupply: "0",
+    decimals: 18,
+    contractAddress,
+  }
 }
 
-function getRiskLevel(score: number): "Low" | "Medium" | "High" {
-  if (score <= 30) return "Low"
-  if (score <= 70) return "Medium"
-  return "High"
+function getDefaultSecurityAnalysis(): SecurityAnalysis {
+  return {
+    isVerified: false,
+    hasProxyContract: false,
+    hasMintFunction: false,
+    hasPauseFunction: false,
+    hasBlacklistFunction: false,
+    hasOwnershipRenounced: false,
+    rugPullRisk: 50,
+  }
+}
+
+function getDefaultHolderAnalysis(): HolderAnalysis {
+  return {
+    totalHolders: 0,
+    top10HoldersPercentage: 100,
+    creatorPercentage: 100,
+    distributionScore: 0,
+  }
 }
