@@ -6,6 +6,7 @@ const TATUM_BASE_URL = "https://api.tatum.io/v3"
 const COINGECKO_BASE_URL = "https://api.coingecko.co/api/v3"
 const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY || "YourApiKeyToken"
 const ETHERSCAN_BASE_URL = "https://api.etherscan.io/api"
+const ETHPLORER_BASE_URL = "https://api.ethplorer.io"
 
 // Add at the top, after imports
 const BLUECHIP_WHITELIST = [
@@ -274,18 +275,51 @@ async function analyzeHolderDistribution(contractAddress: string): Promise<Holde
             distributionScore: calculateDistributionScore(holders, totalSupplyFromHolders),
           }
         }
-      } else {
-        console.log("Etherscan API response:", holdersData)
-        console.log("No holder data available or API limit reached")
       }
-    } else {
-      console.log("Failed to fetch holder data from Etherscan")
     }
   } catch (error) {
-    console.error("Error analyzing holder distribution:", error)
+    console.error("Error analyzing holder distribution (Etherscan):", error)
+  }
+
+  try {
+    const altHolders = await fetchHoldersFromEthplorer(contractAddress)
+    if (altHolders && altHolders.length > 0) {
+      const totalSupply = altHolders.reduce((sum, h: any) => sum + (Number.parseFloat(h.balance) || 0), 0)
+      const top10Supply = altHolders.slice(0, 10).reduce((sum, h: any) => sum + (Number.parseFloat(h.balance) || 0), 0)
+      const creatorBalance = Number.parseFloat(altHolders[0]?.balance || "0")
+
+      return {
+        totalHolders: altHolders.length,
+        top10HoldersPercentage: totalSupply > 0 ? (top10Supply / totalSupply) * 100 : 100,
+        creatorPercentage: totalSupply > 0 ? (creatorBalance / totalSupply) * 100 : 100,
+        distributionScore: calculateDistributionScore(
+          altHolders.map((h: any) => ({ TokenHolderQuantity: h.balance })),
+          totalSupply,
+        ),
+      }
+    }
+  } catch (error) {
+    console.error("Error analyzing holder distribution (Ethplorer):", error)
   }
 
   return getDefaultHolderAnalysis()
+}
+
+async function fetchHoldersFromEthplorer(contractAddress: string): Promise<any[] | null> {
+  try {
+    const res = await fetch(
+      `${ETHPLORER_BASE_URL}/getTopTokenHolders/${contractAddress}?apiKey=freekey&limit=100`,
+    )
+    if (res.ok) {
+      const data = await res.json()
+      if (data?.holders && Array.isArray(data.holders)) {
+        return data.holders
+      }
+    }
+  } catch (error) {
+    console.error('Error fetching holders from Ethplorer:', error)
+  }
+  return null
 }
 
 // Add a new function to only add risk factors for present data
@@ -334,8 +368,23 @@ function identifyRiskFactorsFiltered(analysis: ComprehensiveAnalysis): RiskFacto
     })
   }
 
-  // Market-related risks (only if marketData is present)
-  if (analysis.marketData) {
+  // Market-related risks
+  if (!analysis.marketData) {
+    riskFactors.push({
+      category: "Market",
+      severity: "high",
+      description: "No market data found on CoinGecko",
+      impact: 30,
+    })
+  } else {
+    if (typeof analysis.marketData.price === "number" && analysis.marketData.price <= 0) {
+      riskFactors.push({
+        category: "Market",
+        severity: "high",
+        description: "Token price is zero or unavailable",
+        impact: 25,
+      })
+    }
     if (typeof analysis.marketData.volume24h === "number" && analysis.marketData.volume24h < 10000) {
       riskFactors.push({
         category: "Market",
@@ -344,7 +393,14 @@ function identifyRiskFactorsFiltered(analysis: ComprehensiveAnalysis): RiskFacto
         impact: 15,
       })
     }
-    if (typeof analysis.marketData.marketCap === "number" && analysis.marketData.marketCap < 100000) {
+    if (typeof analysis.marketData.marketCap === "number" && analysis.marketData.marketCap <= 0) {
+      riskFactors.push({
+        category: "Market",
+        severity: "high",
+        description: "Token market cap is zero",
+        impact: 25,
+      })
+    } else if (typeof analysis.marketData.marketCap === "number" && analysis.marketData.marketCap < 100000) {
       riskFactors.push({
         category: "Market",
         severity: "medium",
