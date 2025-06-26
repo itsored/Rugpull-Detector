@@ -27,7 +27,6 @@ interface ComprehensiveAnalysisProps {
       atlChangePercentage: number
     } | null
     securityAnalysis: {
-      isVerified: boolean
       hasProxyContract: boolean
       hasMintFunction: boolean
       hasPauseFunction: boolean
