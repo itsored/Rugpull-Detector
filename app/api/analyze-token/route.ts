@@ -7,6 +7,23 @@ const COINGECKO_BASE_URL = "https://api.coingecko.co/api/v3"
 const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY || "YourApiKeyToken"
 const ETHERSCAN_BASE_URL = "https://api.etherscan.io/api"
 
+// Add at the top, after imports
+const BLUECHIP_WHITELIST = [
+  // USDT
+  "0xdac17f958d2ee523a2206206994597c13d831ec7",
+  // USDC
+  "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48",
+  // WETH
+  "0xc02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".toLowerCase(),
+  // LINK
+  "0x514910771af9ca656af840dff83e8264ecf986ca",
+  // Add more as needed
+]
+
+function isBluechipToken(address: string): boolean {
+  return BLUECHIP_WHITELIST.includes(address.toLowerCase())
+}
+
 interface TokenMetadata {
   name: string
   symbol: string
@@ -78,7 +95,22 @@ export async function POST(request: NextRequest) {
 
     console.log(`Starting analysis for: ${contractAddress}`)
 
-    // Run all analyses in parallel for efficiency
+    // If bluechip, return very low risk immediately
+    if (isBluechipToken(contractAddress)) {
+      const tokenData = await getTokenMetadata(contractAddress)
+      const analysis: ComprehensiveAnalysis = {
+        tokenData,
+        marketData: null,
+        securityAnalysis: getDefaultSecurityAnalysis(),
+        holderAnalysis: getDefaultHolderAnalysis(),
+        riskFactors: [],
+        overallRiskScore: 0,
+        riskLevel: "Very Low",
+        recommendation: "🌟 This is a well-known, established token. No major risks detected.",
+      }
+      return NextResponse.json(analysis)
+    }
+
     const [tokenData, marketData, securityAnalysis, holderAnalysis] = await Promise.allSettled([
       getTokenMetadata(contractAddress),
       getMarketData(contractAddress),
@@ -86,20 +118,26 @@ export async function POST(request: NextRequest) {
       analyzeHolderDistribution(contractAddress),
     ])
 
-    // Extract results, handling failures gracefully
+    // Only use data if fulfilled
+    const resolvedTokenData = tokenData.status === "fulfilled" ? tokenData.value : getDefaultTokenData(contractAddress)
+    const resolvedMarketData = marketData.status === "fulfilled" ? marketData.value : null
+    const resolvedSecurityAnalysis = securityAnalysis.status === "fulfilled" ? securityAnalysis.value : getDefaultSecurityAnalysis()
+    const resolvedHolderAnalysis = holderAnalysis.status === "fulfilled" ? holderAnalysis.value : getDefaultHolderAnalysis()
+
+    // Only include risk factors for present data
     const analysis: ComprehensiveAnalysis = {
-      tokenData: tokenData.status === "fulfilled" ? tokenData.value : getDefaultTokenData(contractAddress),
-      marketData: marketData.status === "fulfilled" ? marketData.value : null,
-      securityAnalysis: securityAnalysis.status === "fulfilled" ? securityAnalysis.value : getDefaultSecurityAnalysis(),
-      holderAnalysis: holderAnalysis.status === "fulfilled" ? holderAnalysis.value : getDefaultHolderAnalysis(),
+      tokenData: resolvedTokenData,
+      marketData: resolvedMarketData,
+      securityAnalysis: resolvedSecurityAnalysis,
+      holderAnalysis: resolvedHolderAnalysis,
       riskFactors: [],
       overallRiskScore: 0,
       riskLevel: "Medium",
       recommendation: "",
     }
 
-    // Perform comprehensive risk analysis
-    analysis.riskFactors = identifyRiskFactors(analysis)
+    // Only add risk factors for available data
+    analysis.riskFactors = identifyRiskFactorsFiltered(analysis)
     analysis.overallRiskScore = calculateOverallRiskScore(analysis.riskFactors)
     analysis.riskLevel = determineRiskLevel(analysis.overallRiskScore)
     analysis.recommendation = generateRecommendation(analysis)
@@ -250,11 +288,12 @@ async function analyzeHolderDistribution(contractAddress: string): Promise<Holde
   return getDefaultHolderAnalysis()
 }
 
-function identifyRiskFactors(analysis: ComprehensiveAnalysis): RiskFactor[] {
+// Add a new function to only add risk factors for present data
+function identifyRiskFactorsFiltered(analysis: ComprehensiveAnalysis): RiskFactor[] {
   const riskFactors: RiskFactor[] = []
 
   // Security-related risks
-  if (!analysis.securityAnalysis.isVerified) {
+  if (analysis.securityAnalysis && analysis.securityAnalysis.isVerified === false) {
     riskFactors.push({
       category: "Security",
       severity: "high",
@@ -262,8 +301,7 @@ function identifyRiskFactors(analysis: ComprehensiveAnalysis): RiskFactor[] {
       impact: 25,
     })
   }
-
-  if (analysis.securityAnalysis.hasMintFunction) {
+  if (analysis.securityAnalysis && analysis.securityAnalysis.hasMintFunction) {
     riskFactors.push({
       category: "Security",
       severity: "medium",
@@ -271,8 +309,7 @@ function identifyRiskFactors(analysis: ComprehensiveAnalysis): RiskFactor[] {
       impact: 15,
     })
   }
-
-  if (analysis.securityAnalysis.hasBlacklistFunction) {
+  if (analysis.securityAnalysis && analysis.securityAnalysis.hasBlacklistFunction) {
     riskFactors.push({
       category: "Security",
       severity: "high",
@@ -280,8 +317,7 @@ function identifyRiskFactors(analysis: ComprehensiveAnalysis): RiskFactor[] {
       impact: 25,
     })
   }
-
-  if (analysis.securityAnalysis.hasPauseFunction) {
+  if (analysis.securityAnalysis && analysis.securityAnalysis.hasPauseFunction) {
     riskFactors.push({
       category: "Security",
       severity: "medium",
@@ -289,8 +325,7 @@ function identifyRiskFactors(analysis: ComprehensiveAnalysis): RiskFactor[] {
       impact: 15,
     })
   }
-
-  if (analysis.securityAnalysis.hasProxyContract) {
+  if (analysis.securityAnalysis && analysis.securityAnalysis.hasProxyContract) {
     riskFactors.push({
       category: "Security",
       severity: "medium",
@@ -299,9 +334,9 @@ function identifyRiskFactors(analysis: ComprehensiveAnalysis): RiskFactor[] {
     })
   }
 
-  // Market-related risks
+  // Market-related risks (only if marketData is present)
   if (analysis.marketData) {
-    if (analysis.marketData.volume24h < 10000) {
+    if (typeof analysis.marketData.volume24h === "number" && analysis.marketData.volume24h < 10000) {
       riskFactors.push({
         category: "Market",
         severity: "medium",
@@ -309,8 +344,7 @@ function identifyRiskFactors(analysis: ComprehensiveAnalysis): RiskFactor[] {
         impact: 15,
       })
     }
-
-    if (analysis.marketData.marketCap < 100000) {
+    if (typeof analysis.marketData.marketCap === "number" && analysis.marketData.marketCap < 100000) {
       riskFactors.push({
         category: "Market",
         severity: "medium",
@@ -318,8 +352,7 @@ function identifyRiskFactors(analysis: ComprehensiveAnalysis): RiskFactor[] {
         impact: 10,
       })
     }
-
-    if (analysis.marketData.priceChange24h < -50) {
+    if (typeof analysis.marketData.priceChange24h === "number" && analysis.marketData.priceChange24h < -50) {
       riskFactors.push({
         category: "Market",
         severity: "high",
@@ -327,45 +360,38 @@ function identifyRiskFactors(analysis: ComprehensiveAnalysis): RiskFactor[] {
         impact: 20,
       })
     }
-  } else {
-    riskFactors.push({
-      category: "Market",
-      severity: "high",
-      description: "No market data available - token may not be actively traded",
-      impact: 20,
-    })
   }
 
-  // Holder distribution risks
-  if (analysis.holderAnalysis.top10HoldersPercentage > 80) {
-    riskFactors.push({
-      category: "Distribution",
-      severity: "high",
-      description: "Top 10 holders control more than 80% of supply",
-      impact: 25,
-    })
-  }
-
-  if (analysis.holderAnalysis.creatorPercentage > 50) {
-    riskFactors.push({
-      category: "Distribution",
-      severity: "critical",
-      description: "Creator/deployer holds more than 50% of total supply",
-      impact: 30,
-    })
-  }
-
-  if (analysis.holderAnalysis.totalHolders < 100) {
-    riskFactors.push({
-      category: "Distribution",
-      severity: "medium",
-      description: "Very few token holders (< 100)",
-      impact: 10,
-    })
+  // Holder distribution risks (only if holderAnalysis is present and not default)
+  if (analysis.holderAnalysis && analysis.holderAnalysis.totalHolders > 0) {
+    if (typeof analysis.holderAnalysis.top10HoldersPercentage === "number" && analysis.holderAnalysis.top10HoldersPercentage > 80) {
+      riskFactors.push({
+        category: "Distribution",
+        severity: "high",
+        description: "Top 10 holders control more than 80% of supply",
+        impact: 25,
+      })
+    }
+    if (typeof analysis.holderAnalysis.creatorPercentage === "number" && analysis.holderAnalysis.creatorPercentage > 50) {
+      riskFactors.push({
+        category: "Distribution",
+        severity: "critical",
+        description: "Creator/deployer holds more than 50% of total supply",
+        impact: 30,
+      })
+    }
+    if (typeof analysis.holderAnalysis.totalHolders === "number" && analysis.holderAnalysis.totalHolders < 100) {
+      riskFactors.push({
+        category: "Distribution",
+        severity: "medium",
+        description: "Very few token holders (< 100)",
+        impact: 10,
+      })
+    }
   }
 
   // Token metadata risks
-  if (analysis.tokenData.name === "Unknown" || analysis.tokenData.symbol === "UNKNOWN") {
+  if (analysis.tokenData && (analysis.tokenData.name === "Unknown" || analysis.tokenData.symbol === "UNKNOWN")) {
     riskFactors.push({
       category: "Metadata",
       severity: "medium",
@@ -376,14 +402,16 @@ function identifyRiskFactors(analysis: ComprehensiveAnalysis): RiskFactor[] {
 
   // Check for excessive supply
   try {
-    const supply = Number.parseFloat(analysis.tokenData.totalSupply) / Math.pow(10, analysis.tokenData.decimals)
-    if (supply > 1e12) {
-      riskFactors.push({
-        category: "Tokenomics",
-        severity: "medium",
-        description: "Extremely large total supply (>1 trillion tokens)",
-        impact: 15,
-      })
+    if (analysis.tokenData && analysis.tokenData.totalSupply && analysis.tokenData.decimals) {
+      const supply = Number.parseFloat(analysis.tokenData.totalSupply) / Math.pow(10, analysis.tokenData.decimals)
+      if (supply > 1e12) {
+        riskFactors.push({
+          category: "Tokenomics",
+          severity: "medium",
+          description: "Extremely large total supply (>1 trillion tokens)",
+          impact: 15,
+        })
+      }
     }
   } catch (error) {
     // Ignore supply calculation errors
