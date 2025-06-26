@@ -282,7 +282,7 @@ export default function ComprehensiveAnalysis({ result }: ComprehensiveAnalysisP
       </Card>
 
       {/* Holder Analysis */}
-      <Card>
+      {/* <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Users className="h-5 w-5" />
@@ -315,7 +315,7 @@ export default function ComprehensiveAnalysis({ result }: ComprehensiveAnalysisP
             </div>
           </div>
         </CardContent>
-      </Card>
+      </Card> */}
 
       {/* Risk Factors */}
       {riskFactors.length > 0 && (

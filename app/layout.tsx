@@ -8,7 +8,7 @@ const inter = Inter({ subsets: ["latin"] })
 export const metadata: Metadata = {
   title: "ERC-20 Token Risk Analyzer",
   description: "Analyze Ethereum tokens for common red flags and scam indicators using Tatum API",
-    generator: 'v0.dev'
+    generator: 'Za'
 }
 
 export default function RootLayout({

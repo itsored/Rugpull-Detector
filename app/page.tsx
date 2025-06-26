@@ -1,38 +1,26 @@
 "use client"
 
-import type React from "react"
-
-import { useState } from "react"
+import React, { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Loader2, Shield, AlertTriangle, X, Copy, Info, Zap } from "lucide-react"
+import {
+  Loader2,
+  Shield,
+  AlertTriangle,
+  X,
+  Copy,
+  Info,
+  Zap,
+} from "lucide-react"
 import ComprehensiveAnalysis from "./components/ComprehensiveAnalysis"
-
-// Real example token addresses for testing
-const EXAMPLE_TOKENS = [
-  {
-    name: "USDT",
-    address: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
-    description: "Tether USD - Major Stablecoin",
-  },
-  {
-    name: "LINK",
-    address: "0x514910771AF9Ca656af840dff83E8264EcF986CA",
-    description: "Chainlink Token - Oracle Network",
-  },
-  {
-    name: "UNI",
-    address: "0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984",
-    description: "Uniswap Token - DEX Governance",
-  },
-  {
-    name: "WETH",
-    address: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-    description: "Wrapped Ether",
-  },
-]
 
 export default function Home() {
   const [contractAddress, setContractAddress] = useState("")
@@ -49,7 +37,9 @@ export default function Home() {
     }
 
     if (!/^0x[a-fA-F0-9]{40}$/.test(contractAddress.trim())) {
-      setError("Please enter a valid Ethereum contract address (0x followed by 40 hexadecimal characters)")
+      setError(
+        "Please enter a valid Ethereum contract address (0x followed by 40 hexadecimal characters)"
+      )
       return
     }
 
@@ -60,9 +50,7 @@ export default function Home() {
     try {
       const response = await fetch("/api/analyze-token", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ contractAddress: contractAddress.trim() }),
       })
 
@@ -82,21 +70,20 @@ export default function Home() {
       }
 
       if (errorMessage.includes("404")) {
-        errorMessage += "\n\nTip: Make sure the address is a valid ERC-20 token contract on Ethereum mainnet."
-      } else if (errorMessage.includes("401") || errorMessage.includes("403")) {
-        errorMessage += "\n\nTip: Check if the API keys are properly configured."
+        errorMessage +=
+          "\n\nTip: Make sure the address is a valid ERC-20 token contract on Ethereum mainnet."
+      } else if (
+        errorMessage.includes("401") ||
+        errorMessage.includes("403")
+      ) {
+        errorMessage +=
+          "\n\nTip: Check if the API keys are properly configured."
       }
 
       setError(errorMessage)
     } finally {
       setIsAnalyzing(false)
     }
-  }
-
-  const handleExampleClick = (address: string) => {
-    setContractAddress(address)
-    setError("")
-    setResult(null)
   }
 
   const getRiskIcon = (level: string) => {
@@ -135,9 +122,15 @@ export default function Home() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 p-4">
       <div className="max-w-6xl mx-auto">
         <div className="text-center mb-8">
-          <h1 className="text-5xl font-bold text-gray-900 mb-3">🔍 Token Risk Analyzer</h1>
-          <p className="text-xl text-gray-600 mb-2">Professional-grade security analysis for Ethereum ERC-20 tokens</p>
-          <p className="text-sm text-gray-500">Powered by Tatum, CoinGecko, and Etherscan APIs</p>
+          <h1 className="text-5xl font-bold text-gray-900 mb-3">
+            🔍 Token Risk Analyzer
+          </h1>
+          <p className="text-xl text-gray-600 mb-2">
+            Professional-grade security analysis for Ethereum ERC-20 tokens
+          </p>
+          <p className="text-sm text-gray-500">
+            Powered by Tatum, CoinGecko, and Etherscan APIs
+          </p>
         </div>
 
         {/* API Setup Notice */}
@@ -147,8 +140,8 @@ export default function Home() {
             <strong>Multi-API Analysis:</strong> This tool combines blockchain data, market information, and security
             analysis.
             <br />
-            <strong>Required:</strong> Tatum API key | <strong>Recommended:</strong> Etherscan API key for enhanced
-            security analysis
+            {/* <strong>Required:</strong> Tatum API key | <strong>Recommended:</strong> Etherscan API key for enhanced
+            security analysis */}
           </AlertDescription>
         </Alert>
 
@@ -159,8 +152,8 @@ export default function Home() {
               Token Analysis Dashboard
             </CardTitle>
             <CardDescription>
-              Enter an ERC-20 contract address for comprehensive risk assessment including security, market data, and
-              holder distribution analysis
+              Enter an ERC-20 contract address for comprehensive risk assessment including security and market data and
+              analysis for Ethereum Tokens
             </CardDescription>
           </CardHeader>
           <CardContent className="pt-6">
@@ -175,39 +168,20 @@ export default function Home() {
                 />
               </div>
 
-              {/* Example tokens */}
-              <div className="space-y-3">
-                <p className="text-sm font-medium text-gray-700">Try these verified tokens:</p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {EXAMPLE_TOKENS.map((token) => (
-                    <Button
-                      key={token.address}
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleExampleClick(token.address)}
-                      className="text-xs justify-start h-auto p-3 hover:bg-indigo-50 hover:border-indigo-300"
-                    >
-                      <Copy className="h-3 w-3 mr-2 flex-shrink-0" />
-                      <div className="text-left">
-                        <div className="font-medium text-sm">{token.name}</div>
-                        <div className="text-gray-500 text-xs">{token.description}</div>
-                      </div>
-                    </Button>
-                  ))}
-                </div>
-              </div>
-
               {error && (
                 <Alert variant="destructive">
-                  <AlertDescription className="whitespace-pre-line">{error}</AlertDescription>
+                  <AlertDescription className="whitespace-pre-line">
+                    {error}
+                  </AlertDescription>
                 </Alert>
               )}
 
               <Button type="submit" disabled={isAnalyzing} className="w-full h-12 text-lg">
                 {isAnalyzing ? (
                   <>
-                    <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                    <Loader2
+                      className="mr-2 h-5 w-5 animate-spin"
+                    />
                     Analyzing Token Security & Market Data...
                   </>
                 ) : (
@@ -231,14 +205,20 @@ export default function Home() {
                     Analysis Results for {result.tokenData.symbol}
                   </CardTitle>
                   <div
-                    className={`flex items-center gap-2 px-4 py-2 rounded-full border-2 ${getRiskColor(result.riskLevel)}`}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-full border-2 ${getRiskColor(
+                      result.riskLevel
+                    )}`}
                   >
                     {getRiskIcon(result.riskLevel)}
-                    <span className="font-bold text-lg">{result.riskLevel} Risk</span>
+                    <span className="font-bold text-lg">
+                      {result.riskLevel} Risk
+                    </span>
                   </div>
                 </div>
                 <CardDescription className="text-lg">
-                  Overall Risk Score: <span className="font-bold">{result.overallRiskScore}/100</span>
+                  Overall Risk Score: <span className="font-bold">
+                    {result.overallRiskScore}/100
+                  </span>
                   {result.riskFactors.length > 0 && (
                     <span className="ml-4 text-red-600">
                       {result.riskFactors.length} risk factor{result.riskFactors.length !== 1 ? "s" : ""} identified
