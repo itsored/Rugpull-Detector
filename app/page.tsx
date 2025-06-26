@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Loader2, Shield, AlertTriangle, X } from "lucide-react"
+import { Loader2, Shield, AlertTriangle, X, Copy, Info } from "lucide-react"
 import TokenAnalysis from "./components/TokenAnalysis"
 
 interface AnalysisResult {
@@ -29,6 +29,30 @@ interface AnalysisResult {
   error?: string
 }
 
+// Real example token addresses for testing
+const EXAMPLE_TOKENS = [
+  {
+    name: "USDT",
+    address: "0xdAC17F958D2ee523a2206206994597C13D831ec7",
+    description: "Tether USD - Stablecoin",
+  },
+  {
+    name: "USDC",
+    address: "0xA0b86a33E6441b8C4505B8C4505B8C4505B8C4505",
+    description: "USD Coin - Stablecoin",
+  },
+  {
+    name: "WETH",
+    address: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+    description: "Wrapped Ether",
+  },
+  {
+    name: "LINK",
+    address: "0x514910771AF9Ca656af840dff83E8264EcF986CA",
+    description: "Chainlink Token",
+  },
+]
+
 export default function Home() {
   const [contractAddress, setContractAddress] = useState("")
   const [isAnalyzing, setIsAnalyzing] = useState(false)
@@ -45,7 +69,7 @@ export default function Home() {
 
     // Basic Ethereum address validation
     if (!/^0x[a-fA-F0-9]{40}$/.test(contractAddress.trim())) {
-      setError("Please enter a valid Ethereum contract address")
+      setError("Please enter a valid Ethereum contract address (0x followed by 40 hexadecimal characters)")
       return
     }
 
@@ -65,15 +89,35 @@ export default function Home() {
       const data = await response.json()
 
       if (!response.ok) {
-        throw new Error(data.error || "Analysis failed")
+        throw new Error(data.error || `HTTP ${response.status}: Analysis failed`)
       }
 
       setResult(data)
     } catch (err) {
-      setError(err instanceof Error ? err.message : "An error occurred during analysis")
+      console.error("Analysis error:", err)
+      let errorMessage = "An error occurred during analysis"
+
+      if (err instanceof Error) {
+        errorMessage = err.message
+      }
+
+      // Provide helpful suggestions based on error type
+      if (errorMessage.includes("404")) {
+        errorMessage += "\n\nTip: Make sure the address is a valid ERC-20 token contract on Ethereum mainnet."
+      } else if (errorMessage.includes("401") || errorMessage.includes("403")) {
+        errorMessage += "\n\nTip: Check if the Tatum API key is properly configured."
+      }
+
+      setError(errorMessage)
     } finally {
       setIsAnalyzing(false)
     }
+  }
+
+  const handleExampleClick = (address: string) => {
+    setContractAddress(address)
+    setError("")
+    setResult(null)
   }
 
   const getRiskIcon = (level: string) => {
@@ -110,6 +154,18 @@ export default function Home() {
           <p className="text-lg text-gray-600">Analyze Ethereum tokens for common red flags and scam indicators</p>
         </div>
 
+        {/* API Key Notice */}
+        <Alert className="mb-6">
+          <Info className="h-4 w-4" />
+          <AlertDescription>
+            <strong>Setup Required:</strong> This app requires a Tatum API key. Get your free key at{" "}
+            <a href="https://tatum.io/" target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
+              tatum.io
+            </a>{" "}
+            and add it to your environment variables as <code className="bg-gray-100 px-1 rounded">TATUM_API_KEY</code>.
+          </AlertDescription>
+        </Alert>
+
         <Card className="mb-8">
           <CardHeader>
             <CardTitle>Token Analysis</CardTitle>
@@ -127,9 +183,32 @@ export default function Home() {
                 />
               </div>
 
+              {/* Example tokens */}
+              <div className="space-y-2">
+                <p className="text-sm text-gray-600">Try these example tokens:</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {EXAMPLE_TOKENS.map((token) => (
+                    <Button
+                      key={token.address}
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleExampleClick(token.address)}
+                      className="text-xs justify-start"
+                    >
+                      <Copy className="h-3 w-3 mr-2" />
+                      <div className="text-left">
+                        <div className="font-medium">{token.name}</div>
+                        <div className="text-gray-500">{token.description}</div>
+                      </div>
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
               {error && (
                 <Alert variant="destructive">
-                  <AlertDescription>{error}</AlertDescription>
+                  <AlertDescription className="whitespace-pre-line">{error}</AlertDescription>
                 </Alert>
               )}
 

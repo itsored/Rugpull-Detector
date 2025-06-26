@@ -1,30 +1,79 @@
-# Tatum blockchain
+# ERC-20 Token Risk Analyzer
 
-*Automatically synced with your [v0.dev](https://v0.dev) deployments*
+A Next.js application that analyzes Ethereum ERC-20 tokens for common red flags and scam indicators using the Tatum API.
 
-[![Deployed on Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-black?style=for-the-badge&logo=vercel)](https://vercel.com/nashons-projects/v0-tatum-blockchain)
-[![Built with v0](https://img.shields.io/badge/Built%20with-v0.dev-black?style=for-the-badge)](https://v0.dev/chat/projects/YGlanAjQ088)
+## Features
 
-## Overview
+- **Token Metadata Analysis**: Retrieves token name, symbol, decimals, and total supply
+- **Red Flag Detection**: Identifies common scam indicators like missing metadata, huge supply, low activity
+- **Risk Scoring**: Calculates a risk score from 0-100 based on detected red flags
+- **Real-time Analysis**: Uses Tatum's blockchain API for up-to-date information
 
-This repository will stay in sync with your deployed chats on [v0.dev](https://v0.dev).
-Any changes you make to your deployed app will be automatically pushed to this repository from [v0.dev](https://v0.dev).
+## Setup
 
-## Deployment
+### 1. Get Tatum API Key
 
-Your project is live at:
+1. Sign up at [tatum.io](https://tatum.io/)
+2. Go to your dashboard
+3. Create a new API key (free tier available)
+4. Copy your API key
 
-**[https://vercel.com/nashons-projects/v0-tatum-blockchain](https://vercel.com/nashons-projects/v0-tatum-blockchain)**
+### 2. Environment Configuration
 
-## Build your app
+Create a `.env.local` file in your project root:
 
-Continue building your app on:
+\`\`\`env
+TATUM_API_KEY=your_tatum_api_key_here
+\`\`\`
 
-**[https://v0.dev/chat/projects/YGlanAjQ088](https://v0.dev/chat/projects/YGlanAjQ088)**
+### 3. Install and Run
+
+\`\`\`bash
+npm install
+npm run dev
+\`\`\`
 
 ## How It Works
 
-1. Create and modify your project using [v0.dev](https://v0.dev)
-2. Deploy your chats from the v0 interface
-3. Changes are automatically pushed to this repository
-4. Vercel deploys the latest version from this repository
+The analyzer uses Tatum's smart contract invocation API to call standard ERC-20 methods:
+
+- `name()` - Token name
+- `symbol()` - Token symbol  
+- `decimals()` - Token decimals
+- `totalSupply()` - Total token supply
+
+It then analyzes this data for red flags commonly associated with scam tokens:
+
+- Missing or empty name/symbol
+- Excessive total supply (>1 trillion tokens)
+- Low transaction activity
+- Centralized token holdings
+- Recently created contracts
+
+## Example Tokens
+
+Try these verified tokens to test the analyzer:
+
+- **USDT**: `0xdAC17F958D2ee523a2206206994597C13D831ec7`
+- **USDC**: `0xA0b86a33E6441b8C4505B8C4505B8C4505B8C4505`
+- **WETH**: `0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2`
+- **LINK**: `0x514910771AF9Ca656af840dff83E8264EcF986CA`
+
+## API Endpoints
+
+The app uses these Tatum API endpoints:
+
+- `POST /v3/ethereum/smartcontract` - Smart contract method invocation
+- `GET /v3/ethereum/transaction/address/{address}` - Transaction history
+- `GET /v3/ethereum/account/balance/{address}` - Account balance
+
+## Limitations
+
+- Only analyzes ERC-20 tokens on Ethereum mainnet
+- Requires valid Tatum API key
+- Some analysis features are simplified for demonstration
+- Rate limits apply based on your Tatum plan
+
+## Disclaimer
+
+This tool is for educational and research purposes only. Always do your own research before investing in any cryptocurrency or token.
