@@ -1,0 +1,146 @@
+
+### P2P payment (phone → phone, on-chain)
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as User (Sender)
+  participant App as Paste App
+  participant DB as Phone→Address Registry
+  participant AA as 4337 Paymaster
+  participant Pay as Payments (Arbitrum)
+  participant USDT as USDT (0xFd086…Cbb9)
+  participant R as Recipient Wallet
+
+  U->>App: Enter recipient phone + amount
+  App->>DB: Resolve phone → recipient address
+  App->>AA: Submit UserOp (signed by embedded wallet)
+  AA->>Pay: executeUserOp()
+  Pay->>USDT: transferFrom(sender, recipient, amount)
+  USDT-->>R: Balance updated
+  Pay-->>App: tx hash
+  App-->>U: Success + tx link
+```
+- Custody timeline
+  - Sender smart account holds funds → USDT transfer settles → Recipient smart account owns funds.
+- Chain/contracts (Arbitrum One, 42161)
+  - USDT: 0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9
+  - 4337 EntryPoint v0.6: 0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789
+  - Paste Payments (address TBA at deploy)
+- Reconciliation artifacts
+  - On-chain: tx hash (Arbiscan), Transfer event
+  - Off-chain: ledger entry (debit/credit), phone→address resolution snapshot
+
+### Merchant payment (on-chain → off-chain M-Pesa)
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as User (Payer)
+  participant App as Paste App
+  participant AA as 4337 Paymaster
+  participant Esc as Payments Escrow (Arbitrum)
+  participant USDT as USDT (0xFd086…Cbb9)
+  participant Ramp as Ramping Engine (Internal)
+  participant Pools as USDT↔KES Pools
+  participant MPesa as Mobile Money
+
+  U->>App: Enter till/paybill/phone + amount (KES)
+  App->>Ramp: Get quote (KES↔USDT) → quoteId
+  App->>AA: Escrow usdAmount (UserOp)
+  AA->>Esc: lock usdAmount
+  Esc->>USDT: transferFrom(user, escrow, usdAmount)
+  App->>Ramp: Confirm payout (quoteId, escrowId)
+  Ramp->>Pools: Source KES liquidity
+  Ramp->>MPesa: Payout to till/paybill/phone → payoutRef
+  App->>Esc: Release to Ramp address
+  Esc->>USDT: transfer(escrow→ramp, usdAmount)
+  Esc-->>App: tx hash(es)
+  App-->>U: Success + tx + payoutRef
+```
+- Custody timeline
+  - User smart account → On-chain escrow → Ramp Engine → Merchant’s M-Pesa account (KES).
+- Chain/contracts (Arbitrum One, 42161)
+  - USDT: 0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9
+  - Payments Escrow (address TBA)
+  - 4337 EntryPoint v0.6: 0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789
+- Reconciliation artifacts
+  - On-chain: escrow lock tx hash; escrow release tx hash
+  - Off-chain: quoteId, payoutRef (M-Pesa), ramp orderId, ledger entries (escrowId↔payoutRef)
+
+### Savings/yield (Aave v3 on Arbitrum)
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as User
+  participant App as Paste App
+  participant AA as 4337 Paymaster
+  participant Vault as Savings Vault (ERC-4626)
+  participant Aave as Aave v3 Pool (Arbitrum)
+  participant USDT as USDT (0xFd086…Cbb9)
+
+  U->>App: Deposit USDT
+  App->>AA: UserOp: Vault.deposit(amount)
+  AA->>Vault: deposit()
+  Vault->>USDT: transferFrom(user, vault, amount)
+  Vault->>Aave: supply(USDT, amount)
+  Aave-->>Vault: aUSDT accrues to vault
+  Vault-->>App: shares minted → user
+
+  U->>App: Withdraw USDT
+  App->>AA: UserOp: Vault.redeem(shares)
+  AA->>Vault: redeem()
+  Vault->>Aave: withdraw(USDT)
+  Aave-->>Vault: USDT returned
+  Vault->>USDT: transfer(vault→user, amount+yield)
+```
+- Custody timeline
+  - User smart account → Vault → Aave position (via vault) → back to user on redeem.
+- Chain/contracts (Arbitrum One, 42161)
+  - USDT: 0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9
+  - Savings Vault (ERC-4626, address TBA)
+  - Aave v3 Pool (Arbitrum market; canonical address per Aave docs)
+  - 4337 EntryPoint v0.6: 0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789
+- Reconciliation artifacts
+  - On-chain: deposit/withdraw tx hashes; Vault share mint/burn; Aave supply/withdraw logs
+  - Off-chain: position snapshots, share balance, APY source, ledger entries
+
+### BNPN purchase (spend yield, not principal)
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as User
+  participant App as Paste App
+  participant AA as 4337 Paymaster
+  participant Vault as Savings Vault (ERC-4626)
+  participant BNPN as BNPN Manager
+  participant Aave as Aave v3 Pool
+  participant USDT as USDT (0xFd086…Cbb9)
+  participant Merchant as Merchant (on-chain or KES)
+  participant Ramp as Ramping Engine (for KES)
+
+  U->>App: Stake USDT (establish BNPN limit)
+  App->>AA: Vault.deposit(amount)
+  AA->>Vault: Principal locked → Aave supply()
+
+  U->>App: BNPN purchase (amount)
+  App->>BNPN: Authorize yield-spend (within cap)
+  BNPN->>Vault: claimYield(up to accrued cap)
+  Vault->>Aave: withdraw(yield USDT)
+  Aave-->>Vault: USDT yield
+  alt Merchant on-chain
+    BNPN->>USDT: transfer(vault→merchant, yield)
+  else Merchant KES
+    BNPN->>Ramp: payout KES (→ Merchant) → payoutRef
+  end
+```
+- Custody timeline
+  - Principal: User → Vault → Aave (remains user-owned).
+  - Yield: Vault → BNPN Manager → Merchant (on-chain) or Ramp payout (KES).
+- Chain/contracts (Arbitrum One, 42161)
+  - USDT: 0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9
+  - Savings Vault (ERC-4626, address TBA)
+  - BNPN Manager (address TBA)
+  - Aave v3 Pool (Arbitrum market)
+  - 4337 EntryPoint v0.6: 0x5FF137D4b0FDCD49DcA30c7CF57E578a026d2789
+- Reconciliation artifacts
+  - On-chain: yield-claim tx hash; merchant settlement tx hash (if on-chain)
+  - Off-chain: BNPN agreementId (principal, cap, term), invoiceId, payoutRef (if KES), ledger entries
